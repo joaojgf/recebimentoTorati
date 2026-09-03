@@ -23,7 +23,6 @@ def limpar_sku(sku_raw):
     """Remove colchetes, espaços e caracteres especiais para gerar código de barras limpo"""
     if not sku_raw:
         return ""
-    # Mantém apenas letras, números e hífens
     return re.sub(r'[^a-zA-Z0-9\-]', '', str(sku_raw)).strip()
 
 def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
@@ -76,11 +75,9 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
             p_desc.drawOn(c, margem_x, y_atual)
 
             # 3. Código de Barras
-            # Define altura fixa e segura para a barra não estourar a borda inferior
-            espaco_disponivel = y_atual - margem_fundo - (4 * mm) # 4mm para o número legível abaixo
+            espaco_disponivel = y_atual - margem_fundo - (4 * mm)
             altura_barras = min(14 * mm, max(8 * mm, espaco_disponivel))
             
-            # Largura das barras proporcional ao número de caracteres do SKU
             tam_sku = max(len(sku_limpo), 4)
             largura_unidade_barra = min(0.38 * mm, largura_util / (tam_sku * 11 + 35))
             
@@ -88,19 +85,16 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
                 sku_limpo, 
                 barHeight=altura_barras, 
                 barWidth=largura_unidade_barra,
-                humanReadable=False # Desativa o texto interno para desenharmos manualmente
+                humanReadable=False
             )
             
-            # Posição Y do código de barras
             pos_y_barras = margem_fundo + (3.5 * mm)
-            
-            # Centralização X
             pos_x_barras = (largura_pt - bc.width) / 2
             pos_x_barras = max(margem_x, pos_x_barras)
             
             bc.drawOn(c, pos_x_barras, pos_y_barras)
 
-            # 4. Texto legível do código logo abaixo das barras
+            # 4. Texto legível do código
             c.setFont("Helvetica", 7.5)
             c.drawCentredString(largura_pt / 2, margem_fundo, sku_limpo)
 
@@ -119,7 +113,7 @@ if xml_file is not None:
         root = tree.getroot()
         ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
 
-        # 1. Extração dos Dados Principais (Número, Emitente, Destinatário)
+        # 1. Extração dos Dados Principais
         n_nf = root.find('.//nfe:ide/nfe:nNF', ns)
         numero_nota = n_nf.text if n_nf is not None else "N/A"
 
@@ -129,7 +123,7 @@ if xml_file is not None:
         dest = root.find('.//nfe:dest/nfe:xNome', ns)
         destinatario = dest.text if dest is not None else "N/A"
 
-        # Data de Emissão (Formatando de AAAA-MM-DD para DD/MM/AAAA)
+        # Data de Emissão
         dh_emi = root.find('.//nfe:ide/nfe:dhEmi', ns)
         if dh_emi is None:
             dh_emi = root.find('.//nfe:ide/nfe:dEmi', ns)
@@ -142,17 +136,25 @@ if xml_file is not None:
             except Exception:
                 data_emissao = dh_emi.text
 
-        # Quantidade de Volumes da Carga
+        # Quantidade de Volumes
         q_vol = root.find('.//nfe:transp/nfe:vol/nfe:qVol', ns)
         volumes = q_vol.text if q_vol is not None else "1"
 
-        # Exibição dos dados principais
         st.success(f"Nota Fiscal **{numero_nota}** recebida com sucesso!")
         
+        # Exibição dos cartões com fonte reduzida para nomes longos
         col1, col2, col3 = st.columns(3)
-        col1.metric("Fornecedor (Emitente)", emitente)
-        col2.metric("Cliente (Destinatário)", destinatario)
-        col3.metric("Data de Emissão", data_emissao)
+        with col1:
+            st.caption("Fornecedor (Emitente)")
+            st.markdown(f"<p style='font-size: 14px; font-weight: bold; margin-top: -8px;'>{emitente}</p>", unsafe_allow_html=True)
+        with col2:
+            st.caption("Cliente (Destinatário)")
+            st.markdown(f"<p style='font-size: 14px; font-weight: bold; margin-top: -8px;'>{destinatario}</p>", unsafe_allow_html=True)
+        with col3:
+            st.caption("Data de Emissão")
+            st.markdown(f"<p style='font-size: 14px; font-weight: bold; margin-top: -8px;'>{data_emissao}</p>", unsafe_allow_html=True)
+
+        st.divider()
 
         # 2. Mensagem para o WhatsApp
         st.subheader("💬 Mensagem para o WhatsApp")
