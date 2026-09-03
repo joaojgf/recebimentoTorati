@@ -25,6 +25,16 @@ def limpar_sku(sku_raw):
         return ""
     return re.sub(r'[^a-zA-Z0-9\-]', '', str(sku_raw)).strip()
 
+def formatar_data(data_raw):
+    """Converte datas AAAA-MM-DD para DD/MM/AAAA"""
+    if not data_raw or data_raw == "N/I":
+        return "N/I"
+    try:
+        data_limpa = data_raw.split('T')[0]
+        return datetime.strptime(data_limpa, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except Exception:
+        return data_raw
+
 def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
     buffer = io.BytesIO()
     largura_pt = largura * mm
@@ -37,8 +47,8 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
         'SKU_Style',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=12,
+        fontSize=9.5,
+        leading=11,
         spaceAfter=1
     )
     
@@ -46,20 +56,30 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
         'Desc_Style',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=7.5,
-        leading=9
+        fontSize=7,
+        leading=8.5
+    )
+
+    estilo_lote_val = ParagraphStyle(
+        'Lote_Val_Style',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=7,
+        leading=8.5
     )
 
     for item in produtos_com_qtd:
         sku_original = str(item['SKU'])
         sku_limpo = limpar_sku(sku_original)
         descricao = str(item['Descrição do Produto'])
+        lote = str(item['Lote'])
+        validade = str(item['Validade'])
         qtd_imprimir = int(item['Quantidade de Etiquetas'])
 
         for _ in range(qtd_imprimir):
             margem_x = 3 * mm
-            margem_topo = 3 * mm
-            margem_fundo = 3 * mm
+            margem_topo = 2.5 * mm
+            margem_fundo = 2.5 * mm
             largura_util = largura_pt - (2 * margem_x)
 
             # 1. Desenha o SKU Limpo no topo
@@ -71,12 +91,19 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
             # 2. Desenha a Descrição
             p_desc = Paragraph(descricao, estilo_desc)
             w_desc, h_desc = p_desc.wrap(largura_util, y_atual)
-            y_atual -= (h_desc + 1.5 * mm)
+            y_atual -= (h_desc + 1 * mm)
             p_desc.drawOn(c, margem_x, y_atual)
 
-            # 3. Código de Barras
-            espaco_disponivel = y_atual - margem_fundo - (4 * mm)
-            altura_barras = min(14 * mm, max(8 * mm, espaco_disponivel))
+            # 3. Desenha Lote e Validade
+            texto_lote_val = f"LOTE: {lote} | VAL: {validade}"
+            p_lv = Paragraph(texto_lote_val, estilo_lote_val)
+            w_lv, h_lv = p_lv.wrap(largura_util, y_atual)
+            y_atual -= (h_lv + 1 * mm)
+            p_lv.drawOn(c, margem_x, y_atual)
+
+            # 4. Código de Barras Ajustado
+            espaco_disponivel = y_atual - margem_fundo - (3.5 * mm)
+            altura_barras = min(12 * mm, max(7 * mm, espaco_disponivel))
             
             tam_sku = max(len(sku_limpo), 4)
             largura_unidade_barra = min(0.38 * mm, largura_util / (tam_sku * 11 + 35))
@@ -88,14 +115,14 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
                 humanReadable=False
             )
             
-            pos_y_barras = margem_fundo + (3.5 * mm)
+            pos_y_barras = margem_fundo + (3 * mm)
             pos_x_barras = (largura_pt - bc.width) / 2
             pos_x_barras = max(margem_x, pos_x_barras)
             
             bc.drawOn(c, pos_x_barras, pos_y_barras)
 
-            # 4. Texto legível do código
-            c.setFont("Helvetica", 7.5)
+            # 5. Texto legível do SKU abaixo da barra
+            c.setFont("Helvetica", 7)
             c.drawCentredString(largura_pt / 2, margem_fundo, sku_limpo)
 
             c.showPage()
@@ -128,13 +155,7 @@ if xml_file is not None:
         if dh_emi is None:
             dh_emi = root.find('.//nfe:ide/nfe:dEmi', ns)
         
-        data_emissao = "N/A"
-        if dh_emi is not None and dh_emi.text:
-            try:
-                data_raw = dh_emi.text.split('T')[0]
-                data_emissao = datetime.strptime(data_raw, '%Y-%m-%d').strftime('%d/%m/%Y')
-            except Exception:
-                data_emissao = dh_emi.text
+        data_emissao = formatar_data(dh_emi.text if dh_emi is not None else "N/I")
 
         # Quantidade de Volumes
         q_vol = root.find('.//nfe:transp/nfe:vol/nfe:qVol', ns)
@@ -142,7 +163,7 @@ if xml_file is not None:
 
         st.success(f"Nota Fiscal **{numero_nota}** recebida com sucesso!")
         
-        # Exibição dos cartões com fonte reduzida para nomes longos
+        # Exibição dos dados principais
         col1, col2, col3 = st.columns(3)
         with col1:
             st.caption("Fornecedor (Emitente)")
@@ -168,18 +189,32 @@ if xml_file is not None:
 
         st.divider()
 
-        # 3. Extração dos Produtos
+        # 3. Extração dos Produtos com Lote e Validade
         produtos = []
         for det in root.findall('.//nfe:det', ns):
             sku = det.find('.//nfe:prod/nfe:cProd', ns)
             descricao = det.find('.//nfe:prod/nfe:xProd', ns)
             quantidade = det.find('.//nfe:prod/nfe:qCom', ns)
 
+            # Busca informações de Lote e Validade (tags <rastro> ou <med>)
+            lote_elem = det.find('.//nfe:prod/nfe:rastro/nfe:nLote', ns)
+            val_elem = det.find('.//nfe:prod/nfe:rastro/nfe:dVal', ns)
+
+            if lote_elem is None:
+                lote_elem = det.find('.//nfe:prod/nfe:med/nfe:nLote', ns)
+            if val_elem is None:
+                val_elem = det.find('.//nfe:prod/nfe:med/nfe:dVal', ns)
+
+            lote_val = lote_elem.text if lote_elem is not None else "N/I"
+            validade_val = formatar_data(val_elem.text if val_elem is not None else "N/I")
+
             qtd_float = float(quantidade.text) if quantidade is not None else 1.0
 
             produtos.append({
                 "SKU": sku.text if sku is not None else "N/A",
                 "Descrição do Produto": descricao.text if descricao is not None else "N/A",
+                "Lote": lote_val,
+                "Validade": validade_val,
                 "Qtd. Nota Fiscal": int(qtd_float)
             })
 
@@ -193,7 +228,7 @@ if xml_file is not None:
             col_info, col_qtd = st.columns([3, 1])
             with col_info:
                 st.write(f"**SKU:** {limpar_sku(item['SKU'])} | **Item:** {item['Descrição do Produto']}")
-                st.caption(f"Quantidade constante na Nota Fiscal: {item['Qtd. Nota Fiscal']}")
+                st.caption(f"Lote: {item['Lote']} | Validade: {item['Validade']} | Qtd. na Nota: {item['Qtd. Nota Fiscal']}")
             with col_qtd:
                 qtd_desejada = st.number_input(
                     label="Qtd. Etiquetas",
@@ -207,6 +242,8 @@ if xml_file is not None:
                 produtos_para_impressao.append({
                     "SKU": item["SKU"],
                     "Descrição do Produto": item["Descrição do Produto"],
+                    "Lote": item["Lote"],
+                    "Validade": item["Validade"],
                     "Quantidade de Etiquetas": qtd_desejada
                 })
             st.divider()
