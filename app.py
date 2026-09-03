@@ -13,10 +13,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 st.set_page_config(page_title="Torati Gestão Logística - Recebimento", layout="wide")
 st.title("🏷️ Torati Gestão Logística - Recebimento")
 
-# --- BARRA LATERAL: Configuração da Impressora ---
+# --- BARRA LATERAL: Configuração da Impressora (Padrão 60x40mm) ---
 st.sidebar.header("⚙️ Configuração da Etiqueta")
-largura_mm = st.sidebar.number_input("Largura (mm)", value=100, min_value=20, max_value=200)
-altura_mm = st.sidebar.number_input("Altura (mm)", value=50, min_value=15, max_value=200)
+largura_mm = st.sidebar.number_input("Largura (mm)", value=60, min_value=20, max_value=200)
+altura_mm = st.sidebar.number_input("Altura (mm)", value=40, min_value=15, max_value=200)
 
 def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
     """
@@ -33,8 +33,8 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
         'SKU_Style',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=13,
+        fontSize=10,
+        leading=12,
         spaceAfter=2
     )
     
@@ -42,8 +42,8 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
         'Desc_Style',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
-        leading=11
+        fontSize=8,
+        leading=10
     )
 
     for item in produtos_com_qtd:
@@ -52,8 +52,8 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
         qtd_imprimir = int(item['Quantidade de Etiquetas'])
 
         for _ in range(qtd_imprimir):
-            margem_x = 4 * mm
-            margem_y = 3 * mm
+            margem_x = 3 * mm
+            margem_y = 2 * mm
             largura_util = largura_pt - (2 * margem_x)
 
             # 1. Desenha o SKU
@@ -65,11 +65,11 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
             # 2. Desenha a Descrição
             p_desc = Paragraph(descricao, estilo_desc)
             w_desc, h_desc = p_desc.wrap(largura_util, y_atual)
-            y_atual -= (h_desc + 3 * mm)
+            y_atual -= (h_desc + 2 * mm)
             p_desc.drawOn(c, margem_x, y_atual)
 
-            # 3. Código de Barras Expandido
-            altura_barras = max(18 * mm, y_atual - margem_y - (5 * mm))
+            # 3. Código de Barras Expandido para 60x40mm
+            altura_barras = max(12 * mm, y_atual - margem_y - (3 * mm))
             largura_unidade_barra = (largura_util / (len(sku) * 11 + 35))
             
             bc = code128.Code128(
@@ -125,7 +125,7 @@ if xml_file is not None:
         q_vol = root.find('.//nfe:transp/nfe:vol/nfe:qVol', ns)
         volumes = q_vol.text if q_vol is not None else "1"
 
-        # Exibição dos dados principais em colunas no painel superior
+        # Exibição dos dados principais
         st.success(f"Nota Fiscal **{numero_nota}** recebida com sucesso!")
         
         col1, col2, col3 = st.columns(3)
@@ -133,7 +133,7 @@ if xml_file is not None:
         col2.metric("Cliente (Destinatário)", destinatario)
         col3.metric("Data de Emissão", data_emissao)
 
-        # 2. Mensagem para o WhatsApp com Emitente e Destinatário
+        # 2. Mensagem para o WhatsApp
         st.subheader("💬 Mensagem para o WhatsApp")
         mensagem_whatsapp = (
             f"Acusamos o recebimento da(s) seguinte(s) NF(s): {numero_nota} de {data_emissao}\n\n"
