@@ -2,6 +2,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 import io
+import re
 from datetime import datetime
 
 from reportlab.lib.units import mm
@@ -18,10 +19,14 @@ st.sidebar.header("⚙️ Configuração da Etiqueta")
 largura_mm = st.sidebar.number_input("Largura (mm)", value=60, min_value=20, max_value=200)
 altura_mm = st.sidebar.number_input("Altura (mm)", value=40, min_value=15, max_value=200)
 
+def limpar_sku(sku_raw):
+    """Remove colchetes, espaços e caracteres especiais para gerar código de barras limpo"""
+    if not sku_raw:
+        return ""
+    # Mantém apenas letras, números e hífens
+    return re.sub(r'[^a-zA-Z0-9\-]', '', str(sku_raw)).strip()
+
 def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
-    """
-    Gera o PDF das etiquetas utilizando a quantidade personalizada definida pelo usuário.
-    """
     buffer = io.BytesIO()
     largura_pt = largura * mm
     altura_pt = altura * mm
@@ -35,54 +40,70 @@ def gerar_pdf_etiquetas(produtos_com_qtd, largura, altura):
         fontName='Helvetica-Bold',
         fontSize=10,
         leading=12,
-        spaceAfter=2
+        spaceAfter=1
     )
     
     estilo_desc = ParagraphStyle(
         'Desc_Style',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8,
-        leading=10
+        fontSize=7.5,
+        leading=9
     )
 
     for item in produtos_com_qtd:
-        sku = str(item['SKU'])
+        sku_original = str(item['SKU'])
+        sku_limpo = limpar_sku(sku_original)
         descricao = str(item['Descrição do Produto'])
         qtd_imprimir = int(item['Quantidade de Etiquetas'])
 
         for _ in range(qtd_imprimir):
             margem_x = 3 * mm
-            margem_y = 2 * mm
+            margem_topo = 3 * mm
+            margem_fundo = 3 * mm
             largura_util = largura_pt - (2 * margem_x)
 
-            # 1. Desenha o SKU
-            p_sku = Paragraph(f"<b>SKU: {sku}</b>", estilo_sku)
+            # 1. Desenha o SKU Limpo no topo
+            p_sku = Paragraph(f"<b>SKU: {sku_limpo}</b>", estilo_sku)
             w_sku, h_sku = p_sku.wrap(largura_util, altura_pt)
-            y_atual = altura_pt - margem_y - h_sku
+            y_atual = altura_pt - margem_topo - h_sku
             p_sku.drawOn(c, margem_x, y_atual)
 
             # 2. Desenha a Descrição
             p_desc = Paragraph(descricao, estilo_desc)
             w_desc, h_desc = p_desc.wrap(largura_util, y_atual)
-            y_atual -= (h_desc + 2 * mm)
+            y_atual -= (h_desc + 1.5 * mm)
             p_desc.drawOn(c, margem_x, y_atual)
 
-            # 3. Código de Barras Expandido para 60x40mm
-            altura_barras = max(12 * mm, y_atual - margem_y - (3 * mm))
-            largura_unidade_barra = (largura_util / (len(sku) * 11 + 35))
+            # 3. Código de Barras
+            # Define altura fixa e segura para a barra não estourar a borda inferior
+            espaco_disponivel = y_atual - margem_fundo - (4 * mm) # 4mm para o número legível abaixo
+            altura_barras = min(14 * mm, max(8 * mm, espaco_disponivel))
+            
+            # Largura das barras proporcional ao número de caracteres do SKU
+            tam_sku = max(len(sku_limpo), 4)
+            largura_unidade_barra = min(0.38 * mm, largura_util / (tam_sku * 11 + 35))
             
             bc = code128.Code128(
-                sku, 
+                sku_limpo, 
                 barHeight=altura_barras, 
                 barWidth=largura_unidade_barra,
-                humanReadable=True
+                humanReadable=False # Desativa o texto interno para desenharmos manualmente
             )
             
+            # Posição Y do código de barras
+            pos_y_barras = margem_fundo + (3.5 * mm)
+            
+            # Centralização X
             pos_x_barras = (largura_pt - bc.width) / 2
             pos_x_barras = max(margem_x, pos_x_barras)
             
-            bc.drawOn(c, pos_x_barras, margem_y)
+            bc.drawOn(c, pos_x_barras, pos_y_barras)
+
+            # 4. Texto legível do código logo abaixo das barras
+            c.setFont("Helvetica", 7.5)
+            c.drawCentredString(largura_pt / 2, margem_fundo, sku_limpo)
+
             c.showPage()
 
     c.save()
@@ -169,7 +190,7 @@ if xml_file is not None:
         for idx, item in enumerate(produtos):
             col_info, col_qtd = st.columns([3, 1])
             with col_info:
-                st.write(f"**SKU:** {item['SKU']} | **Item:** {item['Descrição do Produto']}")
+                st.write(f"**SKU:** {limpar_sku(item['SKU'])} | **Item:** {item['Descrição do Produto']}")
                 st.caption(f"Quantidade constante na Nota Fiscal: {item['Qtd. Nota Fiscal']}")
             with col_qtd:
                 qtd_desejada = st.number_input(
